@@ -1,0 +1,11 @@
+/Users/parity/Documents/my_inks/my_contracts/delegator/adder/target/ink/release/deps/ink_metadata-9b08c9175ac781e4.rmeta: /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/lib.rs /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/layout/mod.rs /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/layout/validate.rs /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/specs.rs /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/utils.rs
+
+/Users/parity/Documents/my_inks/my_contracts/delegator/adder/target/ink/release/deps/libink_metadata-9b08c9175ac781e4.rlib: /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/lib.rs /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/layout/mod.rs /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/layout/validate.rs /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/specs.rs /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/utils.rs
+
+/Users/parity/Documents/my_inks/my_contracts/delegator/adder/target/ink/release/deps/ink_metadata-9b08c9175ac781e4.d: /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/lib.rs /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/layout/mod.rs /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/layout/validate.rs /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/specs.rs /Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/utils.rs
+
+/Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/lib.rs:
+/Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/layout/mod.rs:
+/Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/layout/validate.rs:
+/Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/specs.rs:
+/Users/parity/.cargo/registry/src/github.com-1ecc6299db9ec823/ink_metadata-4.0.1/src/utils.rs:

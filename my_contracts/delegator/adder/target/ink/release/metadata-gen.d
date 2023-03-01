@@ -1,0 +1,1 @@
+/Users/parity/Documents/my_inks/my_contracts/delegator/adder/target/ink/release/metadata-gen: /Users/parity/Documents/my_inks/my_contracts/delegator/accumulator/lib.rs /Users/parity/Documents/my_inks/my_contracts/delegator/adder/lib.rs /private/var/folders/z1/c__l40_s6kb5mqlpqhkmvc_h0000gp/T/cargo-contract_quTNZM/.ink/metadata_gen/main.rs
