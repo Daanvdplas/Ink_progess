@@ -1,0 +1,12 @@
+functions:
+- constructor
+- add owner
+- remove owner
+- replace owner
+- change requirements
+- submit transaction
+- cancel transaction
+- confirm transaction
+- revoke confirmation
+- invoke transaction
+- eval transaction
