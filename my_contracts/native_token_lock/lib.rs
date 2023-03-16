@@ -1,11 +1,16 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[ink::contract]
-mod safe {
+mod NativeTokenLock {
     use ink::storage::Mapping;
 
+    #[ink::trait_definition]
+    pub trait Lock {
+        #[ink(message)]
+        fn lock();
+    }
     #[ink(storage)]
-    pub struct Safe {
+    pub struct NativeTokenLock {
         deposits: Mapping<AccountId, Balance>,
     }
 
@@ -29,16 +34,6 @@ mod safe {
         total: Balance,
     }
 
-    #[ink(event)]
-    pub struct Transfer {
-        #[ink(topic)]
-        from: AccountId,
-        #[ink(topic)]
-        to: AccountId,
-        #[ink(topic)]
-        amount: Balance,
-    }
-
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
@@ -51,7 +46,7 @@ mod safe {
 
     pub type Result<T> = core::result::Result<T, Error>;
 
-    impl Safe {
+    impl NativeTokenLock {
         #[ink(constructor)]
         pub fn default() -> Self {
             Self {
@@ -121,9 +116,9 @@ mod safe {
                 return Err(Error::InsufficientBalance);
             }
             let to_deposited = self.deposits.get(to).unwrap_or_default();
-            // if to_deposited == 0 {
-            //     return Err(Error::UnknownAccount);
-            // }
+            if to_deposited == 0 {
+                return Err(Error::UnknownAccount);
+            }
 
             // Execute transfer
             self.deposits.insert(from, &(from_deposited - amount));
@@ -168,7 +163,7 @@ mod safe {
             set_sender(accounts.alice);
             assert_eq!(accounts.alice, contract_id());
             set_balance(accounts.alice, 100);
-            let safe = Safe::default();
+            let safe = NativeTokenLock::default();
             assert_eq!(safe.total(), 100);
             assert_eq!(accounts.alice, safe.get_id());
         }
@@ -332,11 +327,11 @@ mod safe {
             assert_eq!(safe.total(), 150);
         }
 
-        fn create_contract() -> Safe {
+        fn create_contract() -> NativeTokenLock {
             let accounts = default_accounts();
             set_sender(accounts.alice);
             set_balance(contract_id(), 0);
-            Safe::default()
+            NativeTokenLock::default()
         }
 
         fn contract_id() -> AccountId {
@@ -369,7 +364,7 @@ mod safe {
         #[ink_e2e::test]
         async fn deposit(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
             // Upload and instantiate safe contract
-            let constructor = SafeRef::default();
+            let constructor = NativeTokenLockRef::default();
             let contract_account_id = client
                 .instantiate("safe", &ink_e2e::alice(), constructor, 0, None)
                 .await
@@ -383,7 +378,7 @@ mod safe {
                 .expect("getting balance failed");
 
             // Build deposit message and execute
-            let deposit = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
+            let deposit = ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
                 .call(|safe| safe.deposit());
             let deposit_result = client.call(&ink_e2e::eve(), deposit, 100, None).await;
             assert!(deposit_result.is_ok());
@@ -398,7 +393,7 @@ mod safe {
             assert_eq!(new_balance - init_balance, 100);
 
             // Storage check of eve:
-            let get = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
+            let get = ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
                 .call(|safe| safe.get());
             let get_result = client.call_dry_run(&ink_e2e::eve(), &get, 0, None).await;
             assert_eq!(get_result.return_value(), 100);
@@ -408,7 +403,7 @@ mod safe {
         #[ink_e2e::test]
         async fn deposit_and_withdraw(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
             // Upload and instantiate safe contract
-            let constructor = SafeRef::default();
+            let constructor = NativeTokenLockRef::default();
             let contract_account_id = client
                 .instantiate("safe", &ink_e2e::alice(), constructor, 0, None)
                 .await
@@ -422,7 +417,7 @@ mod safe {
                 .expect("getting balance failed");
 
             // Build deposit message and execute
-            let deposit = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
+            let deposit = ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
                 .call(|safe| safe.deposit());
             let deposit_result = client.call(&ink_e2e::eve(), deposit, 100, None).await;
             assert!(deposit_result.is_ok());
@@ -437,20 +432,21 @@ mod safe {
             assert_eq!(deposit_balance - init_balance, 100);
 
             // Storage check of eve:
-            let get = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
+            let get = ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
                 .call(|safe| safe.get());
             let get_result = client.call_dry_run(&ink_e2e::eve(), &get, 0, None).await;
             assert_eq!(get_result.return_value(), 100);
 
             // Storage check of bob:
-            let get = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
+            let get = ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
                 .call(|safe| safe.get());
             let get_result = client.call_dry_run(&ink_e2e::bob(), &get, 0, None).await;
             assert_eq!(get_result.return_value(), 0);
 
             // Build withdraw message and execute (bob)
-            let withdraw = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
-                .call(|safe| safe.withdraw(50));
+            let withdraw =
+                ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
+                    .call(|safe| safe.withdraw(50));
             let withdraw_result = client.call(&ink_e2e::bob(), withdraw, 0, None).await;
             assert!(
                 withdraw_result.is_err(),
@@ -465,13 +461,14 @@ mod safe {
             assert_eq!(withdraw_balance, deposit_balance);
 
             // Build withdraw message and execute (eve)
-            let withdraw = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
-                .call(|safe| safe.withdraw(50));
+            let withdraw =
+                ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
+                    .call(|safe| safe.withdraw(50));
             let withdraw_result = client.call(&ink_e2e::eve(), withdraw, 0, None).await;
             assert!(withdraw_result.is_ok(), "Eve should be able to withdraw");
 
             // Storage check of eve:
-            let get = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
+            let get = ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
                 .call(|safe| safe.get());
             let get_result = client.call_dry_run(&ink_e2e::eve(), &get, 0, None).await;
             assert_eq!(get_result.return_value(), 50);
@@ -488,7 +485,7 @@ mod safe {
         #[ink_e2e::test]
         async fn deposit_withdraw_transfer(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
             // Upload and instantiate safe contract
-            let constructor = SafeRef::default();
+            let constructor = NativeTokenLockRef::default();
             let contract_account_id = client
                 .instantiate("safe", &ink_e2e::alice(), constructor, 0, None)
                 .await
@@ -502,7 +499,7 @@ mod safe {
                 .expect("getting balance failed");
 
             // Build deposit message and execute
-            let deposit = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
+            let deposit = ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
                 .call(|safe| safe.deposit());
             let deposit_result = client.call(&ink_e2e::eve(), deposit, 100, None).await;
             assert!(deposit_result.is_ok());
@@ -517,47 +514,66 @@ mod safe {
             assert_eq!(deposit_balance - init_balance, 100);
 
             // Storage check of eve:
-            let get = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
+            let get = ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
                 .call(|safe| safe.get());
             let get_result = client.call_dry_run(&ink_e2e::eve(), &get, 0, None).await;
             assert_eq!(get_result.return_value(), 100);
 
             // Storage check of bob:
-            let get = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
+            let get = ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
                 .call(|safe| safe.get());
             let get_result = client.call_dry_run(&ink_e2e::bob(), &get, 0, None).await;
             assert_eq!(get_result.return_value(), 0);
 
             // Transfer balance from bob -> eve
-            let transfer = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
-                .call(|safe| safe.transfer(ink_e2e::account_id(ink_e2e::AccountKeyring::Eve), 50));
+            let transfer = ink_e2e::build_message::<NativeTokenLockRef>(
+                contract_account_id.clone(),
+            )
+            .call(|safe| safe.transfer(ink_e2e::account_id(ink_e2e::AccountKeyring::Eve), 50));
             let transfer_result = client.call(&ink_e2e::bob(), transfer, 0, None).await;
             assert!(transfer_result.is_err(), "Transfer should fail");
 
             // Transfer balance from eve -> bob
-            let transfer = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
-                .call(|safe| safe.transfer(ink_e2e::account_id(ink_e2e::AccountKeyring::Bob), 50));
+            let transfer = ink_e2e::build_message::<NativeTokenLockRef>(
+                contract_account_id.clone(),
+            )
+            .call(|safe| safe.transfer(ink_e2e::account_id(ink_e2e::AccountKeyring::Bob), 50));
             let transfer_result = client.call(&ink_e2e::eve(), transfer, 0, None).await;
             assert!(transfer_result.is_ok(), "Transfer should succeed");
 
             // Build withdraw message and execute (bob)
-            let withdraw = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
-                .call(|safe| safe.withdraw(50));
+            let withdraw =
+                ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
+                    .call(|safe| safe.withdraw(50));
             let withdraw_result = client.call(&ink_e2e::bob(), withdraw, 0, None).await;
             assert!(withdraw_result.is_ok(), "Bob should be able to withdraw");
-
-            // Build withdraw message and execute (eve)
-            let withdraw = ink_e2e::build_message::<SafeRef>(contract_account_id.clone())
-                .call(|safe| safe.withdraw(50));
-            let withdraw_result = client.call(&ink_e2e::eve(), withdraw, 0, None).await;
-            assert!(withdraw_result.is_ok(), "Eve should be able to withdraw");
 
             // Obtain contract balance after failed withdraw
             let withdraw_balance: Balance = client
                 .balance(contract_account_id)
                 .await
                 .expect("getting balance failed");
-            assert_eq!(withdraw_balance, 0);
+            assert_eq!(withdraw_balance, deposit_balance);
+
+            // Build withdraw message and execute (eve)
+            let withdraw =
+                ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
+                    .call(|safe| safe.withdraw(50));
+            let withdraw_result = client.call(&ink_e2e::eve(), withdraw, 0, None).await;
+            assert!(withdraw_result.is_ok(), "Eve should be able to withdraw");
+
+            // Storage check of eve:
+            let get = ink_e2e::build_message::<NativeTokenLockRef>(contract_account_id.clone())
+                .call(|safe| safe.get());
+            let get_result = client.call_dry_run(&ink_e2e::eve(), &get, 0, None).await;
+            assert_eq!(get_result.return_value(), 50);
+
+            // Obtain contract balance after failed withdraw
+            let withdraw_balance: Balance = client
+                .balance(contract_account_id)
+                .await
+                .expect("getting balance failed");
+            assert_eq!(withdraw_balance, deposit_balance - 50);
             Ok(())
         }
     }
