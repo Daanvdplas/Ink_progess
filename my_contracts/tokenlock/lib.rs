@@ -2,18 +2,28 @@
 
 #[ink::contract]
 mod tokenlock {
+    use ink::storage::Mapping;
+
+    #[ink::storage_item]
+    pub struct Lock {
+        amount: Balance,
+        from: Timestamp,
+        to: Timestamp,
+    }
 
     #[ink(storage)]
     pub struct Tokenlock {
-        /// Stores a single `bool` value on the storage.
-        value: bool,
+        minimum: Balance,
+        locks: Mapping<AccountId, Lock>,
     }
 
     impl Tokenlock {
-        /// Constructor that initializes the `bool` value to the given `init_value`.
         #[ink(constructor)]
-        pub fn new(init_value: bool) -> Self {
-            Self { value: init_value }
+        pub fn new(minimum: Balance) -> Self {
+            Self {
+                minimum,
+                locks: Mapping::default(),
+            }
         }
 
         /// Constructor that initializes the `bool` value to `false`.
