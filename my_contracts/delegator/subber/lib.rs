@@ -26,7 +26,11 @@ mod subber {
             let method_selector = [0xC0, 0xDE, 0xCA, 0xFE];
             let _result = build_call::<<Self as ::ink::env::ContractEnv>::Env>()
                 .call(self.sub_contract)
-                .call_flags(CallFlags::default())
+                .call_flags(
+                    CallFlags::default()
+                        .set_tail_call(true)
+                        .set_allow_reentry(true),
+                )
                 .exec_input(ExecutionInput::new(method_selector.into()).push_arg(-by))
                 .returns::<()>()
                 .try_invoke();

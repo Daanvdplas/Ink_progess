@@ -1,3 +1,0 @@
-cargo:rerun-if-changed=build/main.rs
-cargo:rustc-env=TYPENUM_BUILD_CONSTS=/Users/parity/Documents/my_inks/my_contracts/delegator/adder/target/ink/release/build/typenum-1c529b7a95713e49/out/consts.rs
-cargo:rustc-env=TYPENUM_BUILD_OP=/Users/parity/Documents/my_inks/my_contracts/delegator/adder/target/ink/release/build/typenum-1c529b7a95713e49/out/op.rs

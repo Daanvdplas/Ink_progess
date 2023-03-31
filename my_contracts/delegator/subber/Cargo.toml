@@ -1,6 +1,7 @@
 [package]
 name = "subber"
 version = "4.0.1"
+authors = ["[your_name] <[your_email]>"]
 edition = "2021"
 
 [dependencies]

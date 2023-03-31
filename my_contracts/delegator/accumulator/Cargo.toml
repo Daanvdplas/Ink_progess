@@ -1,6 +1,6 @@
 [package]
 name = "accumulator"
-version = "0.1.0"
+version = "4.0.1"
 authors = ["[your_name] <[your_email]>"]
 edition = "2021"
 

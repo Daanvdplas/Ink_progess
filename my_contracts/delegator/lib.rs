@@ -48,6 +48,12 @@ mod caller {
         sub_contract: AccountId,
     }
 
+    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum Error {
+        DelegationError,
+    }
+
     impl Delegator {
         #[ink(constructor)]
         pub fn new(
@@ -64,14 +70,28 @@ mod caller {
         }
 
         #[ink(message)]
-        pub fn get(&self) {
+        pub fn get(&self) -> i32 {
             let method_selector = [0xC0, 0xDE, 0xCA, 0xF1];
-            let _result = build_call::<<Self as ::ink::env::ContractEnv>::Env>()
+            build_call::<<Self as ::ink::env::ContractEnv>::Env>()
                 .call(self.acc_contract)
+                .gas_limit(0)
+                .transferred_value(0)
                 .call_flags(CallFlags::default())
                 .exec_input(ExecutionInput::new(method_selector.into()))
-                .returns::<()>()
-                .try_invoke();
+                .returns::<i32>()
+                .try_invoke()
+                .unwrap_or_else(|env_err| {
+                    panic!(
+                        "cross-contract call to {:?} failed due to {:?}",
+                        self.acc_contract, env_err
+                    )
+                })
+                .unwrap_or_else(|lang_err| {
+                    panic!(
+                        "cross-contract call to {:?} failed due to {:?}",
+                        self.acc_contract, lang_err
+                    )
+                })
         }
 
         #[ink(message)]
@@ -83,10 +103,27 @@ mod caller {
             };
             let _result = build_call::<<Self as ::ink::env::ContractEnv>::Env>()
                 .call(contract)
-                .call_flags(CallFlags::default())
+                .call_flags(
+                    CallFlags::default()
+                        .set_tail_call(true)
+                        .set_allow_reentry(true),
+                )
                 .exec_input(ExecutionInput::new(method_selector.into()).push_arg(by))
                 .returns::<()>()
                 .try_invoke();
+            //     .unwrap_or_else(|env_err| {
+            //         panic!(
+            //             "cross-contract call to {:?} failed due to {:?}",
+            //             self.acc_contract, env_err
+            //         )
+            //     })
+            //     .unwrap_or_else(|lang_err| {
+            //         panic!(
+            //             "cross-contract call to {:?} failed due to {:?}",
+            //             self.acc_contract, lang_err
+            //         )
+            //     });
+            // unreachable!("shouldn't be possible");
         }
 
         #[ink(message)]
