@@ -1,10 +1,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub use self::adder::{Adder, AdderRef};
+
 #[ink::contract]
 mod adder {
     use accumulator::AccumulatorRef;
     use ink::env::{
-        call::{build_call, Call, ExecutionInput, Selector},
+        call::{build_call, ExecutionInput},
         CallFlags, DefaultEnvironment,
     };
     /// Increments the underlying `accumulator` value.
@@ -30,7 +32,7 @@ mod adder {
         pub fn inc(&mut self, by: i32) {
             let method_selector = [0xC0, 0xDE, 0xCA, 0xFE];
             // self.test += 1;
-            let _result = build_call::<<Self as ::ink::env::ContractEnv>::Env>()
+            let _result = build_call::<DefaultEnvironment>()
                 .call(self.acc_contract)
                 .call_flags(
                     CallFlags::default()
@@ -54,7 +56,7 @@ mod adder {
         type E2EResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
         #[ink_e2e::test(additional_contracts = "../accumulator/Cargo.toml")]
-        async fn accumulator_test(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
+        async fn instantiate_accumulator(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
             // Instantiate `accumulator` contract
             let init_value = 10;
             let acc_constructor = AccumulatorRef::new(init_value);

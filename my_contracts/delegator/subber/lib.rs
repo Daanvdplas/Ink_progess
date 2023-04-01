@@ -1,10 +1,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub use self::subber::{Subber, SubberRef};
+
 #[ink::contract]
 mod subber {
     use accumulator::AccumulatorRef;
     use ink::env::{
-        call::{build_call, Call, ExecutionInput, Selector},
+        call::{build_call, ExecutionInput},
         CallFlags, DefaultEnvironment,
     };
 
@@ -26,7 +28,7 @@ mod subber {
         #[ink(message, selector = 0xC0DECAFE)]
         pub fn dec(&mut self, by: i32) {
             let method_selector = [0xC0, 0xDE, 0xCA, 0xFE];
-            let _result = build_call::<<Self as ::ink::env::ContractEnv>::Env>()
+            let _result = build_call::<DefaultEnvironment>()
                 .call(self.sub_contract)
                 .call_flags(
                     CallFlags::default()
@@ -45,7 +47,7 @@ mod subber {
         type E2EResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
         #[ink_e2e::test(additional_contracts = "../accumulator/Cargo.toml")]
-        async fn accumulator_test(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
+        async fn instantiate_accumulator(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
             // Instantiate `accumulator` contract
             let init_value = 10;
             let acc_constructor = AccumulatorRef::new(init_value);
@@ -96,10 +98,10 @@ mod subber {
 
             // Build `decrease` message of `subber` contract and execute
             let decrease = 10;
-            let inc_message =
+            let dec_message =
                 ink_e2e::build_message::<SubberRef>(subber_contract_account_id.clone())
                     .call(|subber| subber.dec(decrease));
-            let inc_result = client.call(&ink_e2e::eve(), inc_message, 0, None).await;
+            let inc_result = client.call(&ink_e2e::eve(), dec_message, 0, None).await;
             assert!(inc_result.is_ok());
 
             // Execute `get` message of `accumulator` contract

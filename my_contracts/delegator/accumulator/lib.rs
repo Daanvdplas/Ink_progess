@@ -4,10 +4,6 @@ pub use self::accumulator::{Accumulator, AccumulatorRef};
 
 #[ink::contract]
 pub mod accumulator {
-    use ink::env::{
-        call::{build_call, Call, ExecutionInput, Selector},
-        CallFlags, DefaultEnvironment,
-    };
     /// Holds a simple `i32` value that can be incremented and decremented.
     #[ink(storage)]
     pub struct Accumulator {
