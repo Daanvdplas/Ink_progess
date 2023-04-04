@@ -18,13 +18,19 @@ pub mod accumulator {
         }
 
         /// Mutates the internal value.
-        #[ink(message, selector = 0xC0DECAFE)]
+        #[ink(message)]
         pub fn inc(&mut self, by: i32) {
+            // Debug message to check whether the contract gets called by the
+            // `adder` or `subber` contract.
+            let caller = self.env().caller();
+            let message = ink::prelude::format!("got a call from {:?}", caller);
+            ink::env::debug_println!("{}", &message);
+
             self.value += by;
         }
 
         /// Returns the current state.
-        #[ink(message, selector = 0xC0DECAF1)]
+        #[ink(message)]
         pub fn get(&self) -> i32 {
             self.value
         }
@@ -83,7 +89,7 @@ pub mod accumulator {
             let get_message = ink_e2e::build_message::<AccumulatorRef>(contract_account_id.clone())
                 .call(|accumulator| accumulator.get());
             let get_result = client
-                .call_dry_run(&ink_e2e::eve(), &get_message, 0, None)
+                .call_dry_run(&ink_e2e::alice(), &get_message, 0, None)
                 .await;
             assert_eq!(get_result.return_value(), init_value);
             Ok(())
@@ -103,7 +109,7 @@ pub mod accumulator {
             let get_message = ink_e2e::build_message::<AccumulatorRef>(contract_account_id.clone())
                 .call(|accumulator| accumulator.get());
             let get_result = client
-                .call_dry_run(&ink_e2e::eve(), &get_message, 0, None)
+                .call_dry_run(&ink_e2e::alice(), &get_message, 0, None)
                 .await;
             assert_eq!(get_result.return_value(), init_value);
 
@@ -113,7 +119,7 @@ pub mod accumulator {
                 ink_e2e::build_message::<AccumulatorRef>(contract_account_id.clone())
                     .call(|accumulator| accumulator.inc(increase));
             let increase_result = client
-                .call(&ink_e2e::eve(), increase_message, 0, None)
+                .call(&ink_e2e::alice(), increase_message, 0, None)
                 .await;
             assert!(increase_result.is_ok());
 
@@ -121,7 +127,7 @@ pub mod accumulator {
             let get_message = ink_e2e::build_message::<AccumulatorRef>(contract_account_id.clone())
                 .call(|accumulator| accumulator.get());
             let get_result = client
-                .call_dry_run(&ink_e2e::eve(), &get_message, 0, None)
+                .call_dry_run(&ink_e2e::alice(), &get_message, 0, None)
                 .await;
             assert_eq!(get_result.return_value(), init_value + increase);
             Ok(())
@@ -141,7 +147,7 @@ pub mod accumulator {
             let get_message = ink_e2e::build_message::<AccumulatorRef>(contract_account_id.clone())
                 .call(|accumulator| accumulator.get());
             let get_result = client
-                .call_dry_run(&ink_e2e::eve(), &get_message, 0, None)
+                .call_dry_run(&ink_e2e::alice(), &get_message, 0, None)
                 .await;
             assert_eq!(get_result.return_value(), init_value);
 
@@ -151,7 +157,7 @@ pub mod accumulator {
                 ink_e2e::build_message::<AccumulatorRef>(contract_account_id.clone())
                     .call(|accumulator| accumulator.inc(decrease));
             let increase_result = client
-                .call(&ink_e2e::eve(), increase_message, 0, None)
+                .call(&ink_e2e::alice(), increase_message, 0, None)
                 .await;
             assert!(increase_result.is_ok());
 
@@ -159,7 +165,7 @@ pub mod accumulator {
             let get_message = ink_e2e::build_message::<AccumulatorRef>(contract_account_id.clone())
                 .call(|accumulator| accumulator.get());
             let get_result = client
-                .call_dry_run(&ink_e2e::eve(), &get_message, 0, None)
+                .call_dry_run(&ink_e2e::alice(), &get_message, 0, None)
                 .await;
             assert_eq!(get_result.return_value(), init_value + decrease);
             Ok(())

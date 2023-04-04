@@ -4,16 +4,15 @@ pub use self::subber::{Subber, SubberRef};
 
 #[ink::contract]
 mod subber {
-    use accumulator::AccumulatorRef;
     use ink::env::{
-        call::{build_call, ExecutionInput},
+        call::{build_call, ExecutionInput, Selector},
         CallFlags, DefaultEnvironment,
     };
 
     /// Decreases the underlying `accumulator` value.
     #[ink(storage)]
     pub struct Subber {
-        /// The `accumulator` to store the value.
+        /// The `accumulator` contract.
         sub_contract: AccountId,
     }
 
@@ -25,9 +24,13 @@ mod subber {
         }
 
         /// Decreases the `accumulator` value by some amount.
-        #[ink(message, selector = 0xC0DECAFE)]
+        #[ink(message)]
         pub fn dec(&mut self, by: i32) {
-            let method_selector = [0xC0, 0xDE, 0xCA, 0xFE];
+            // Debug message to check whether the contract gets called by the delegator
+            let caller = self.env().caller();
+            let message = ink::prelude::format!("got a call from {:?}", caller);
+            ink::env::debug_println!("{}", &message);
+
             let _result = build_call::<DefaultEnvironment>()
                 .call(self.sub_contract)
                 .call_flags(
@@ -35,19 +38,23 @@ mod subber {
                         .set_tail_call(true)
                         .set_allow_reentry(true),
                 )
-                .exec_input(ExecutionInput::new(method_selector.into()).push_arg(-by))
+                .exec_input(
+                    ExecutionInput::new(Selector::new(ink::selector_bytes!("inc"))).push_arg(-by),
+                )
                 .returns::<()>()
                 .try_invoke();
+            unreachable!("set_tail_call = true");
         }
     }
 
     #[cfg(all(test, feature = "e2e-tests"))]
     mod e2e_tests {
         use super::*;
+        use accumulator::AccumulatorRef;
         type E2EResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
         #[ink_e2e::test(additional_contracts = "../accumulator/Cargo.toml")]
-        async fn instantiate_accumulator(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
+        async fn accumulator(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
             // Instantiate `accumulator` contract
             let init_value = 10;
             let acc_constructor = AccumulatorRef::new(init_value);
@@ -62,13 +69,13 @@ mod subber {
                 ink_e2e::build_message::<AccumulatorRef>(acc_contract_account_id.clone())
                     .call(|accumulator| accumulator.get());
             let get_result = client
-                .call_dry_run(&ink_e2e::eve(), &get_message, 0, None)
+                .call_dry_run(&ink_e2e::alice(), &get_message, 0, None)
                 .await;
             assert_eq!(get_result.return_value(), init_value);
             Ok(())
         }
 
-        #[ink_e2e::test(additional_contracts = "../accumulator/Cargo.toml")]
+        #[ink_e2e::test]
         async fn decrease(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
             // Instantiate `accumulator` contract
             let init_value = 10;
@@ -84,7 +91,7 @@ mod subber {
                 ink_e2e::build_message::<AccumulatorRef>(acc_contract_account_id.clone())
                     .call(|accumulator| accumulator.get());
             let get_result = client
-                .call_dry_run(&ink_e2e::eve(), &get_message, 0, None)
+                .call_dry_run(&ink_e2e::alice(), &get_message, 0, None)
                 .await;
             assert_eq!(get_result.return_value(), init_value);
 
@@ -101,12 +108,12 @@ mod subber {
             let dec_message =
                 ink_e2e::build_message::<SubberRef>(subber_contract_account_id.clone())
                     .call(|subber| subber.dec(decrease));
-            let inc_result = client.call(&ink_e2e::eve(), dec_message, 0, None).await;
-            assert!(inc_result.is_ok());
+            let dec_result = client.call(&ink_e2e::alice(), dec_message, 0, None).await;
+            assert!(dec_result.is_ok());
 
             // Execute `get` message of `accumulator` contract
             let get_result = client
-                .call_dry_run(&ink_e2e::eve(), &get_message, 0, None)
+                .call_dry_run(&ink_e2e::alice(), &get_message, 0, None)
                 .await;
             assert_eq!(get_result.return_value(), init_value - decrease);
             Ok(())
