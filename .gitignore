@@ -3,6 +3,7 @@
 /**/target/
 /design/
 .idea/
+.DS_Store
 
 
 # Ignore backup files creates by cargo fmt.
