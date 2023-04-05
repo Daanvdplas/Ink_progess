@@ -4,10 +4,15 @@ mod tests;
 
 #[ink::contract]
 mod dao {
+    use ink::env::{
+        call::{build_call, ExecutionInput, Selector},
+        CallFlags, DefaultEnvironment,
+    };
     use ink::storage::Mapping;
 
     type Result<T> = core::result::Result<T, Error>;
     type ProposalId = u64;
+    type Votes = u128;
 
     // A proposal that can be made with `fn propose`.
     #[derive(scale::Decode, scale::Encode, Debug, PartialEq, Eq)]
@@ -20,21 +25,26 @@ mod dao {
         pub amount: Balance,
         pub start: Timestamp,
         pub end: Timestamp,
-        pub finished: bool,
+        pub executed: bool,
     }
 
     // The amount of votes on a given `Proposal`.
-    #[derive(scale::Decode, scale::Encode)]
+    #[derive(scale::Decode, scale::Encode, Default, Debug, PartialEq, Eq)]
     #[cfg_attr(
         feature = "std",
         derive(ink::storage::traits::StorageLayout, scale_info::TypeInfo)
     )]
     pub struct ProposalVotes {
-        total_yes: u64,
-        total_no: u64,
+        pub total_yes: Votes,
+        pub total_no: Votes,
     }
 
     // Type of a vote.
+    #[derive(scale::Decode, scale::Encode, Clone, Copy)]
+    #[cfg_attr(
+        feature = "std",
+        derive(ink::storage::traits::StorageLayout, scale_info::TypeInfo)
+    )]
     pub enum VoteType {
         Yes,
         No,
@@ -46,7 +56,7 @@ mod dao {
         pub proposals: Mapping<ProposalId, Proposal>,
         pub proposal_votes: Mapping<ProposalId, ProposalVotes>,
         pub votes: Mapping<(ProposalId, AccountId), ()>,
-        pub created_proposals: ProposalId,
+        pub next_proposal_id: ProposalId,
         pub governance_token: AccountId,
         pub quorum: u8,
     }
@@ -62,11 +72,25 @@ mod dao {
     #[ink(event)]
     pub struct NewProposal {
         #[ink(topic)]
+        pub proposal_id: ProposalId,
+        #[ink(topic)]
         pub to: AccountId,
         #[ink(topic)]
         pub amount: Balance,
         #[ink(topic)]
         pub duration: u64,
+    }
+
+    #[ink(event)]
+    pub struct NewVote {
+        #[ink(topic)]
+        pub proposal_id: ProposalId,
+        #[ink(topic)]
+        pub who: AccountId,
+        #[ink(topic)]
+        pub vote_type: VoteType,
+        #[ink(topic)]
+        pub vote_amount: Votes,
     }
 
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -76,10 +100,18 @@ mod dao {
         InsufficientProposalAmount,
         // The duration of the proposal is too short.
         ProposalDurationTooShort,
-        // Max amount of proposals created in contract.
-        MaxContractProposals,
         // Proposal ID does not exist.
         ProposalNotFound,
+        // Proposal has been executed.
+        ProposalExecuted,
+        // Proposal has expired.
+        ProposalExpired,
+        // Voter has already voted on this proposal.
+        AlreadyVoted,
+        // Overflow.
+        ArithmeticOverflow,
+        // No tokens to vote.
+        InsufficientBalance,
     }
 
     impl Dao {
@@ -94,7 +126,7 @@ mod dao {
                 proposals: Mapping::default(),
                 proposal_votes: Mapping::default(),
                 votes: Mapping::default(),
-                created_proposals: 0,
+                next_proposal_id: 0,
                 governance_token,
                 quorum,
             }
@@ -110,21 +142,32 @@ mod dao {
                 return Err(Error::ProposalDurationTooShort);
             }
             let proposal_id = self.create_proposal_id()?;
+            self.next_proposal_id += 1;
             // Sanity while developing
             debug_assert!(self.proposals.get(proposal_id).is_none());
             debug_assert!(self.proposal_votes.get(proposal_id).is_none());
 
             // Create `Proposal`
             let now = self.env().block_timestamp();
-            let proposal = Proposal {
-                to,
-                amount,
-                start: now,
-                end: (now + duration),
-                finished: false,
-            };
-            self.proposals.insert(proposal_id, &proposal);
+            self.proposals.insert(
+                proposal_id,
+                &Proposal {
+                    to,
+                    amount,
+                    start: now,
+                    end: (now + duration),
+                    executed: false,
+                },
+            );
+            self.proposal_votes.insert(
+                proposal_id,
+                &ProposalVotes {
+                    total_yes: 0,
+                    total_no: 0,
+                },
+            );
             Self::env().emit_event(NewProposal {
+                proposal_id,
                 to,
                 amount,
                 duration,
@@ -134,17 +177,132 @@ mod dao {
 
         #[inline]
         fn create_proposal_id(&mut self) -> Result<u64> {
-            if self.created_proposals.checked_add(1).is_none() {
-                return Err(Error::MaxContractProposals);
-            }
-            self.created_proposals += 1;
-            Ok(self.created_proposals)
+            self.next_proposal_id
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)
         }
+
         // Vote on a proposal.
-        // #[ink(message)]
-        // pub fn vote(&mut self) {
-        //     self.value = !self.value;
+        #[ink(message)]
+        pub fn vote(&mut self, proposal_id: ProposalId, vote_type: VoteType) -> Result<()> {
+            let proposal = match self.proposals.get(proposal_id) {
+                Some(proposal) => proposal,
+                _ => return Err(Error::ProposalNotFound),
+            };
+            self.has_executed(&proposal)?;
+            self.has_expired(&proposal)?;
+            let caller = self.env().caller();
+            self.has_voted(proposal_id, caller)?;
+            let vote_amount = self.balance_of(caller);
+            if vote_amount == 0 {
+                return Err(Error::InsufficientBalance);
+            }
+            self.add_votes(vote_amount, proposal_id, vote_type)?;
+            self.votes.insert((&proposal_id, &caller), &());
+            Self::env().emit_event(NewVote {
+                proposal_id,
+                who: caller,
+                vote_type,
+                vote_amount,
+            });
+            Ok(())
+        }
+
+        #[inline]
+        fn add_votes(
+            &mut self,
+            vote_amount: Balance,
+            proposal_id: ProposalId,
+            vote_type: VoteType,
+        ) -> Result<()> {
+            let proposal_votes = self
+                .proposal_votes
+                .get(proposal_id)
+                .unwrap_or_else(|| panic!("Developer is a dickhead"));
+            let proposal_votes = match vote_type {
+                VoteType::Yes => ProposalVotes {
+                    total_yes: proposal_votes
+                        .total_yes
+                        .checked_add(vote_amount)
+                        .ok_or(Error::ArithmeticOverflow)?,
+                    total_no: proposal_votes.total_no,
+                },
+                VoteType::No => ProposalVotes {
+                    total_yes: proposal_votes.total_yes,
+                    total_no: proposal_votes
+                        .total_no
+                        .checked_add(vote_amount)
+                        .ok_or(Error::ArithmeticOverflow)?,
+                },
+            };
+            self.proposal_votes.insert(proposal_id, &proposal_votes);
+            Ok(())
+        }
+
+        #[inline]
+        fn balance_of(&self, caller: AccountId) -> Balance {
+            build_call::<DefaultEnvironment>()
+                .call(self.governance_token)
+                .gas_limit(0)
+                .transferred_value(0)
+                .call_flags(CallFlags::default())
+                .exec_input(
+                    ExecutionInput::new(Selector::new(ink::selector_bytes!("balance_of")))
+                        .push_arg(caller),
+                )
+                .returns::<Balance>()
+                .try_invoke()
+                .unwrap_or_else(|env_err| {
+                    panic!("cross-contract call to erc20 failed due to {:?}", env_err)
+                })
+                .unwrap_or_else(|lang_err| {
+                    panic!("cross-contract call to erc20 failed due to {:?}", lang_err)
+                })
+        }
+
+        // #[inline]
+        // fn total_supply(&self) -> Balance {
+        //     build_call::<DefaultEnvironment>()
+        //         .call(self.governance_token)
+        //         .gas_limit(0)
+        //         .transferred_value(0)
+        //         .call_flags(CallFlags::default())
+        //         .exec_input(ExecutionInput::new(Selector::new(ink::selector_bytes!(
+        //             "total_supply"
+        //         ))))
+        //         .returns::<Balance>()
+        //         .try_invoke()
+        //         .unwrap_or_else(|env_err| {
+        //             panic!("cross-contract call to erc20 failed due to {:?}", env_err)
+        //         })
+        //         .unwrap_or_else(|lang_err| {
+        //             panic!("cross-contract call to erc20 failed due to {:?}", lang_err)
+        //         })
         // }
+
+        #[inline]
+        fn has_executed(&self, proposal: &Proposal) -> Result<()> {
+            if proposal.executed {
+                return Err(Error::ProposalExecuted);
+            }
+            Ok(())
+        }
+
+        #[inline]
+        fn has_expired(&self, proposal: &Proposal) -> Result<()> {
+            if self.env().block_timestamp() >= proposal.end {
+                return Err(Error::ProposalExpired);
+            }
+            Ok(())
+        }
+
+        #[inline]
+        fn has_voted(&self, proposal_id: ProposalId, voter: AccountId) -> Result<()> {
+            if self.votes.get((proposal_id, voter)).is_some() {
+                return Err(Error::AlreadyVoted);
+            }
+            Ok(())
+        }
 
         // Execute a proposal.
         // #[ink(message)]
@@ -161,16 +319,22 @@ mod dao {
         }
 
         // Get the total votes regarding a proposal.
-        // #[ink(message)]
-        // pub fn get_votes(&self) -> bool {
-        //     self.value
-        // }
+        #[ink(message)]
+        pub fn get_votes(&self, proposal_id: ProposalId) -> Result<ProposalVotes> {
+            self.proposal_votes
+                .get(proposal_id)
+                .ok_or(Error::ProposalNotFound)
+        }
 
         // Get the amount of time left to vote on a proposal.
-        // #[ink(message)]
-        // pub fn get_votes(&self) -> bool {
-        //     self.value
-        // }
+        #[ink(message)]
+        pub fn get_proposal_end(&self, proposal_id: ProposalId) -> Result<Timestamp> {
+            let proposal = self
+                .proposals
+                .get(proposal_id)
+                .ok_or(Error::ProposalNotFound)?;
+            Ok(proposal.end)
+        }
     }
 
     #[cfg(all(test, feature = "e2e-tests"))]
@@ -195,7 +359,7 @@ mod dao {
         // }
 
         // #[ink_e2e::test]
-        // async fn propose_works(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
+        // async fn correct_proposal(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
         //     let governance_token: AccountId = [0x08; 32].into();
         //     let quorum = 10;
         //     let dao_constructor = DaoRef::new(governance_token, quorum);
@@ -224,5 +388,13 @@ mod dao {
         //     })
         //     Ok(())
         // }
+
+        // incorrect_proposal_amount
+        // incorrect_proposal_duration
+        // already_voted
+        // no_proposal
+        // proposal_expired
+        // proposal_executed
+        // insufficient_balance
     }
 }

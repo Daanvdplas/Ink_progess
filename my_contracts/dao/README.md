@@ -6,10 +6,11 @@
 - Execute a proposal
 
 ## Metrics:
-- Voting power: voter's balance * 100 / total supply
+- Voting power: voter's balance
 
 ## Ideas:
 - Different mechanics for voting power
+  - Voter wants to use all its tokens?
 - Possibility to fund the DAO
 - Being able to be funded with other token
 - Creator of DAO can determine whether proposal duration is constant
@@ -17,6 +18,9 @@
 - ProposalId: Hash
 - How do people search for a proposal?
 
-
+## Questions:
+- Panic or emitting error?
+- Option<T> as return value in query messages.
+- Interacting with other contracts in rust test.
 
 

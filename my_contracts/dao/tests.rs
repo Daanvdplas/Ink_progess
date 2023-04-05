@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod test {
-    use crate::dao::{Dao, Error, NewDao, NewProposal, Proposal};
+    use crate::dao::{Dao, Error, NewDao, NewProposal, Proposal, ProposalVotes, VoteType};
     use ink::primitives::AccountId;
     type Event = <Dao as ::ink::reflect::ContractEventBase>::Type;
     type Balance = u128;
@@ -10,7 +10,7 @@ mod test {
     fn create_dao() {
         let governance_token: AccountId = [0x08; 32].into();
         let quorum = 10;
-        let dao = create_contract(governance_token, quorum, 1000);
+        let _dao = create_contract(governance_token, quorum, 1000);
         let emitted_events = get_events();
         assert_eq!(emitted_events.len(), 1);
         assert_new_event(&emitted_events[0], governance_token, quorum);
@@ -36,6 +36,17 @@ mod test {
         let emitted_events = get_events();
         assert_eq!(emitted_events.len(), 2);
         assert_propose_event(&emitted_events[1], accounts.django, 10, 10);
+        let total_votes = dao.get_votes(0);
+        assert_eq!(total_votes, Err(Error::ProposalNotFound));
+        let total_votes = dao
+            .get_votes(1)
+            .unwrap_or_else(|_| panic!("proposal should exist"));
+        assert_eq!(total_votes.total_yes, 0);
+        assert_eq!(total_votes.total_no, 0);
+        let end = dao
+            .get_proposal_end(1)
+            .unwrap_or_else(|_| panic!("proposal should exit"));
+        assert_eq!(end, 50 + 10);
     }
 
     #[ink::test]
@@ -56,6 +67,10 @@ mod test {
         // verify with emitted events
         let emitted_events = get_events();
         assert_eq!(emitted_events.len(), 1);
+        let total_votes = dao.get_votes(1);
+        assert_eq!(total_votes, Err(Error::ProposalNotFound));
+        let end = dao.get_proposal_end(1);
+        assert_eq!(end, Err(Error::ProposalNotFound));
     }
 
     #[ink::test]
@@ -76,6 +91,81 @@ mod test {
         // verify with emitted events
         let emitted_events = get_events();
         assert_eq!(emitted_events.len(), 1);
+        let total_votes = dao.get_votes(1);
+        assert_eq!(total_votes, Err(Error::ProposalNotFound));
+        let end = dao.get_proposal_end(1);
+        assert_eq!(end, Err(Error::ProposalNotFound));
+    }
+
+    #[ink::test]
+    fn wrong_proposal() {
+        let governance_token: AccountId = [0x08; 32].into();
+        let quorum = 10;
+        let mut dao = create_contract(governance_token, quorum, 1000);
+        let accounts = default_accounts();
+        // Proposal
+        let _propose_result = dao.propose(accounts.django, 10, 10);
+        // Vote by Bob
+        set_sender(accounts.bob);
+        let vote_result = dao.vote(10, VoteType::Yes);
+        assert_eq!(vote_result, Err(Error::ProposalNotFound));
+        let total_votes = dao.get_votes(10);
+        assert_eq!(total_votes, Err(Error::ProposalNotFound));
+        let end = dao.get_proposal_end(10);
+        assert_eq!(end, Err(Error::ProposalNotFound));
+    }
+
+    #[ink::test]
+    fn proposal_expired() {
+        let governance_token: AccountId = [0x08; 32].into();
+        let quorum = 10;
+        let mut dao = create_contract(governance_token, quorum, 1000);
+        let accounts = default_accounts();
+        // Proposal
+        set_block_timestamp(1000);
+        let _propose_result = dao.propose(accounts.django, 10, 10);
+        // Vote by Bob
+        set_sender(accounts.bob);
+        set_block_timestamp(2000);
+        let vote_result = dao.vote(1, VoteType::Yes);
+        assert_eq!(vote_result, Err(Error::ProposalExpired));
+        let total_votes = dao
+            .get_votes(1)
+            .unwrap_or_else(|_| panic!("proposal should exist"));
+        assert_eq!(total_votes.total_yes, 0);
+        assert_eq!(total_votes.total_no, 0);
+        let end = dao.get_proposal_end(1);
+        assert_eq!(end, Ok(1010));
+    }
+
+    #[ink::test]
+    fn already_voted() {
+        let governance_token: AccountId = [0x08; 32].into();
+        let quorum = 10;
+        let mut dao = create_contract(governance_token, quorum, 1000);
+        let accounts = default_accounts();
+        // Proposal
+        let _propose_result = dao.propose(accounts.django, 10, 10);
+        // Vote by Bob
+        let proposal_votes = ProposalVotes {
+            total_yes: 100,
+            total_no: 0,
+        };
+        dao.proposal_votes.insert(1, &proposal_votes);
+        dao.votes.insert((1, accounts.bob), &());
+        // Bob votes again
+        set_sender(accounts.bob);
+        let vote_result = dao.vote(1, VoteType::Yes);
+        assert_eq!(vote_result, Err(Error::AlreadyVoted));
+        let vote_result = dao.vote(1, VoteType::No);
+        assert_eq!(vote_result, Err(Error::AlreadyVoted));
+        let total_votes = dao
+            .get_votes(1)
+            .unwrap_or_else(|_| panic!("proposal should exist"));
+        assert_eq!(total_votes.total_yes, 100);
+        assert_eq!(total_votes.total_no, 0);
+        let end = dao.get_proposal_end(1);
+        assert_eq!(end, Ok(10));
     }
 
     // Helper functions for tests
@@ -148,7 +238,7 @@ mod test {
                 amount,
                 start,
                 end: start + duration,
-                finished: false,
+                executed: false,
             }
         )
     }
@@ -161,11 +251,13 @@ mod test {
     ) {
         let decoded_event = <Event as scale::Decode>::decode(&mut &event.data[..]);
         if let Ok(Event::NewProposal(NewProposal {
+            proposal_id,
             to,
             amount,
             duration,
         })) = decoded_event
         {
+            assert_eq!(proposal_id, 1);
             assert_eq!(to, proposed_to);
             assert_eq!(amount, proposed_amount);
             assert_eq!(duration, proposed_duration);
