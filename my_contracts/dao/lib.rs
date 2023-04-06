@@ -62,7 +62,7 @@ mod dao {
     }
 
     #[ink(event)]
-    pub struct NewDao {
+    pub struct DaoCreated {
         #[ink(topic)]
         pub governance_token: AccountId,
         #[ink(topic)]
@@ -70,7 +70,7 @@ mod dao {
     }
 
     #[ink(event)]
-    pub struct NewProposal {
+    pub struct ProposalCreated {
         #[ink(topic)]
         pub proposal_id: ProposalId,
         #[ink(topic)]
@@ -82,7 +82,7 @@ mod dao {
     }
 
     #[ink(event)]
-    pub struct NewVote {
+    pub struct Vote {
         #[ink(topic)]
         pub proposal_id: ProposalId,
         #[ink(topic)]
@@ -118,10 +118,10 @@ mod dao {
         // Instantiate a new DAO.
         #[ink(constructor, payable)]
         pub fn new(governance_token: AccountId, quorum: u8) -> Self {
-            Self::env().emit_event(NewDao {
-                governance_token,
-                quorum,
-            });
+            // Self::env().emit_event(DaoCreated {
+            //     governance_token,
+            //     quorum,
+            // });
             Dao {
                 proposals: Mapping::default(),
                 proposal_votes: Mapping::default(),
@@ -136,17 +136,17 @@ mod dao {
         #[ink(message)]
         pub fn propose(&mut self, to: AccountId, amount: Balance, duration: u64) -> Result<()> {
             if amount == 0 {
+                ink::env::debug_println!("amount");
                 return Err(Error::InsufficientProposalAmount);
             }
             if duration == 0 {
+                ink::env::debug_println!("duration");
                 return Err(Error::ProposalDurationTooShort);
             }
             let proposal_id = self.create_proposal_id()?;
             self.next_proposal_id += 1;
-            // Sanity while developing
-            debug_assert!(self.proposals.get(proposal_id).is_none());
-            debug_assert!(self.proposal_votes.get(proposal_id).is_none());
 
+            ink::env::debug_println!("yeah");
             // Create `Proposal`
             let now = self.env().block_timestamp();
             self.proposals.insert(
@@ -166,12 +166,12 @@ mod dao {
                     total_no: 0,
                 },
             );
-            Self::env().emit_event(NewProposal {
-                proposal_id,
-                to,
-                amount,
-                duration,
-            });
+            // Self::env().emit_event(ProposalCreated {
+            //     proposal_id,
+            //     to,
+            //     amount,
+            //     duration,
+            // });
             Ok(())
         }
 
@@ -199,12 +199,12 @@ mod dao {
             }
             self.add_votes(vote_amount, proposal_id, vote_type)?;
             self.votes.insert((&proposal_id, &caller), &());
-            Self::env().emit_event(NewVote {
-                proposal_id,
-                who: caller,
-                vote_type,
-                vote_amount,
-            });
+            // Self::env().emit_event(Vote {
+            //     proposal_id,
+            //     who: caller,
+            //     vote_type,
+            //     vote_amount,
+            // });
             Ok(())
         }
 
@@ -341,53 +341,103 @@ mod dao {
     mod e2e_tests {
         use super::*;
 
-        // use ink_e2e::build_message;
+        use ink_e2e::build_message;
 
-        // type E2EResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+        type E2EResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-        // #[ink_e2e::test]
-        // async fn new_works(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
-        //     let governance_token: AccountId = [0x08; 32].into();
-        //     let quorum = 10;
-        //     let dao_constructor = DaoRef::new(governance_token, quorum);
-        //     let _dao_id = client
-        //         .instantiate("dao", &ink_e2e::alice(), dao_constructor, 100, None)
-        //         .await
-        //         .expect("dao contract instantiation failed")
-        //         .account_id;
-        //     Ok(())
-        // }
+        #[ink_e2e::test]
+        async fn gets_work(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
+            let governance_token: AccountId = [0x08; 32].into();
+            let quorum = 10;
+            let dao_constructor = DaoRef::new(governance_token, quorum);
+            let dao_id = client
+                .instantiate("dao", &ink_e2e::ferdie(), dao_constructor, 100, None)
+                .await
+                .expect("dao contract instantiation failed")
+                .account_id;
+            // Test get_* without a proposal:
+            //
+            // Get end of proposal
+            let get_end = ink_e2e::build_message::<DaoRef>(dao_id.clone())
+                .call(|dao| dao.get_proposal_end(1));
+            let get_end_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_end, 0, None)
+                .await;
+            assert_eq!(get_end_result.return_value(), Err(Error::ProposalNotFound));
+            // Get proposal
+            let get_proposal =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.get_proposal(1));
+            let get_proposal_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_proposal, 0, None)
+                .await;
+            assert_eq!(
+                get_proposal_result.return_value(),
+                Err(Error::ProposalNotFound)
+            );
+            // Get total votes on proposal
+            let get_votes =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.get_votes(1));
+            let get_votes_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_votes, 0, None)
+                .await;
+            assert_eq!(
+                get_votes_result.return_value(),
+                Err(Error::ProposalNotFound)
+            );
 
-        // #[ink_e2e::test]
-        // async fn correct_proposal(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
-        //     let governance_token: AccountId = [0x08; 32].into();
-        //     let quorum = 10;
-        //     let dao_constructor = DaoRef::new(governance_token, quorum);
-        //     let dao_id = client
-        //         .instantiate("dao", &ink_e2e::alice(), dao_constructor, 100, None)
-        //         .await
-        //         .expect("dao contract instantiation failed")
-        //         .account_id;
-        //     let propose_message =
-        //         ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.propose(ink_e2e::django(), 10, 10));
-        //     let start = client.block_timestamp()
-        //     let propose_result = client
-        //         .call(&ink_e2e::alice(), propose_message, 0, None)
-        //         .await;
-        //     assert!(propose_result.is_ok());
-
-        //     let get_proposal_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
-        //         .call(|dao| dao.get_proposal(decrease));
-        //     let get_proposal_result = client
-        //         .call(&ink_e2e::alice(), get_proposal_message, 0, None)
-        //         .await;
-        //     assert_eq!(get_proposal_result.return_value(), Ok(Proposal {
-        //         to: ink_e2e::django(),
-        //         amount: 10,
-
-        //     })
-        //     Ok(())
-        // }
+            // Test with a proposal:
+            //
+            // Propose a proposal
+            let ferdie_account = ink_e2e::account_id(ink_e2e::AccountKeyring::Ferdie);
+            let propose_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
+                .call(|dao| dao.propose(ferdie_account.clone(), 10, 10));
+            let propose_result = client
+                .call(&ink_e2e::alice(), propose_message, 0, None)
+                .await;
+            assert!(propose_result.is_ok());
+            // Get end of proposal
+            let get_end = ink_e2e::build_message::<DaoRef>(dao_id.clone())
+                .call(|dao| dao.get_proposal_end(1));
+            let get_end_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_end, 0, None)
+                .await;
+            assert!(get_end_result.exec_result.result.is_ok());
+            // Hacky way due to no timestamp() in e2e_tests yet
+            let start = get_end_result
+                .return_value()
+                .unwrap_or_else(|_| panic!("shouldn't panic"))
+                - 10;
+            // Get proposal
+            let get_proposal =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.get_proposal(1));
+            let get_proposal_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_proposal, 0, None)
+                .await;
+            assert_eq!(
+                get_proposal_result.return_value(),
+                Ok(Proposal {
+                    to: ferdie_account,
+                    amount: 10,
+                    start,
+                    end: start + 10,
+                    executed: false,
+                })
+            );
+            // Get total votes on proposal
+            let get_votes =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.get_votes(1));
+            let get_votes_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_votes, 0, None)
+                .await;
+            assert_eq!(
+                get_votes_result.return_value(),
+                Ok(ProposalVotes {
+                    total_yes: 0,
+                    total_no: 0,
+                })
+            );
+            Ok(())
+        }
 
         // incorrect_proposal_amount
         // incorrect_proposal_duration
