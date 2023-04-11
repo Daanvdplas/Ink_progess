@@ -10,7 +10,8 @@ mod test {
     // fn create_dao() {
     //     let governance_token: AccountId = [0x08; 32].into();
     //     let quorum = 10;
-    //     let _dao = create_contract(governance_token, quorum, 1000);
+    //     let dao = create_contract(governance_token, quorum, 1000);
+    //     assert_eq!(dao.get_treasury_amount(), 1000);
     //     let emitted_events = get_events();
     //     assert_eq!(emitted_events.len(), 1);
     //     assert_new_event(&emitted_events[0], governance_token, quorum);
@@ -22,6 +23,7 @@ mod test {
     //     let quorum = 10;
     //     let mut dao = create_contract(governance_token, quorum, 1000);
     //     let accounts = default_accounts();
+    //     assert_eq!(dao.get_treasury_amount(), 1000);
     //     // proposal
     //     set_block_timestamp(50);
     //     let propose_result = dao.propose(accounts.django, 10, 10);
@@ -54,10 +56,11 @@ mod test {
     //     let governance_token: AccountId = [0x08; 32].into();
     //     let quorum = 10;
     //     let mut dao = create_contract(governance_token, quorum, 1000);
+    //     assert_eq!(dao.get_treasury_amount(), 1000);
     //     let accounts = default_accounts();
     //     // proposal
     //     let propose_result = dao.propose(accounts.django, 0, 10);
-    //     assert!(propose_result.is_err());
+    //     assert_eq!(propose_result, Err(Error::InvalidProposalAmount));
     //     // verify with `get_proposal`
     //     if let Err(error) = dao.get_proposal(1) {
     //         assert_eq!(error, Error::ProposalNotFound)
@@ -78,10 +81,11 @@ mod test {
     //     let governance_token: AccountId = [0x08; 32].into();
     //     let quorum = 10;
     //     let mut dao = create_contract(governance_token, quorum, 1000);
+    //     assert_eq!(dao.get_treasury_amount(), 1000);
     //     let accounts = default_accounts();
     //     // proposal
     //     let propose_result = dao.propose(accounts.django, 10, 0);
-    //     assert!(propose_result.is_err());
+    //     assert_eq!(propose_result, Err(Error::InvalidProposalDuration));
     //     // verify with `get_proposal`
     //     if let Err(error) = dao.get_proposal(1) {
     //         assert_eq!(error, Error::ProposalNotFound)
@@ -98,10 +102,11 @@ mod test {
     // }
 
     // #[ink::test]
-    // fn wrong_proposal() {
+    // fn vote_wrong_proposal() {
     //     let governance_token: AccountId = [0x08; 32].into();
     //     let quorum = 10;
     //     let mut dao = create_contract(governance_token, quorum, 1000);
+    //     assert_eq!(dao.get_treasury_amount(), 1000);
     //     let accounts = default_accounts();
     //     // Proposal
     //     let _propose_result = dao.propose(accounts.django, 10, 10);
@@ -116,10 +121,11 @@ mod test {
     // }
 
     // #[ink::test]
-    // fn proposal_expired() {
+    // fn vote_proposal_expired() {
     //     let governance_token: AccountId = [0x08; 32].into();
     //     let quorum = 10;
     //     let mut dao = create_contract(governance_token, quorum, 1000);
+    //     assert_eq!(dao.get_treasury_amount(), 1000);
     //     let accounts = default_accounts();
     //     // Proposal
     //     set_block_timestamp(1000);
@@ -139,10 +145,11 @@ mod test {
     // }
 
     // #[ink::test]
-    // fn already_voted() {
+    // fn vote_already_voted() {
     //     let governance_token: AccountId = [0x08; 32].into();
     //     let quorum = 10;
     //     let mut dao = create_contract(governance_token, quorum, 1000);
+    //     assert_eq!(dao.get_treasury_amount(), 1000);
     //     let accounts = default_accounts();
     //     // Proposal
     //     let _propose_result = dao.propose(accounts.django, 10, 10);

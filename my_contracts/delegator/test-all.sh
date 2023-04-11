@@ -20,4 +20,3 @@ cargo contract call --contract $DELEGATOR --message get --dry-run --suri //Alice
 
 # Calling `accumulator` contract `get` message to compare with `delegator` contract `get` message
 cargo contract call --manifest-path=accumulator/Cargo.toml --contract $ACCUMULATOR --message get --dry-run --suri //Alice --skip-confirm
-
