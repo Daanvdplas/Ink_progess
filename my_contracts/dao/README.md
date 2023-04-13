@@ -26,6 +26,10 @@ The governance token gives accounts voting power. Yet, the payout is in the nati
   * Name
   * Name + token
   * Name + token + blocknumber
+- Who should be able to execute a proposal?
+- Should we be able to query who voted on a proposal?
+- Should we be able to make a proposal, in terms of whether the dao has the funds,
+  with proposals that have not been executed yet?
 
 ## Questions:
 - Panic or emitting error?

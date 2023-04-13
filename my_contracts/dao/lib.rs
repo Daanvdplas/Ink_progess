@@ -17,7 +17,7 @@ mod dao {
     const DAYS: u64 = 60 * 1_000;
 
     // A proposal that can be made with `fn propose`.
-    #[derive(scale::Decode, scale::Encode, Debug, PartialEq, Eq)]
+    #[derive(scale::Decode, scale::Encode, Debug, Copy, Clone, PartialEq, Eq)]
     #[cfg_attr(
         feature = "std",
         derive(ink::storage::traits::StorageLayout, scale_info::TypeInfo)
@@ -55,11 +55,19 @@ mod dao {
     // Contract storage.
     #[ink(storage)]
     pub struct Dao {
+        // Store the proposal to proposal id.
         pub proposals: Mapping<ProposalId, Proposal>,
+        // Store the votes (total yes and no) to the proposal id.
         pub proposal_votes: Mapping<ProposalId, ProposalVotes>,
+        // Store a voter's account id, when it voted, to the proposal id.
         pub votes: Mapping<(ProposalId, AccountId), ()>,
+        // Store the number of voters to a proposal id.
+        pub total_voters: Mapping<ProposalId, u8>,
+        // The proposal id for the next proposal.
         pub next_proposal_id: ProposalId,
+        // The token accounts need to vote.
         pub governance_token: AccountId,
+        // The minimul number of voters required for a proposal to be executed.
         pub quorum: u8,
     }
 
@@ -90,6 +98,18 @@ mod dao {
         pub vote_amount: Votes,
     }
 
+    #[ink(event)]
+    pub struct ProposalExecuted {
+        #[ink(topic)]
+        pub proposal_id: ProposalId,
+        #[ink(topic)]
+        to: AccountId,
+        amount: Balance,
+        total_yes: Votes,
+        total_no: Votes,
+        total_voters: u8,
+    }
+
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
@@ -109,6 +129,14 @@ mod dao {
         ArithmeticOverflow,
         // No tokens to vote.
         InsufficientBalance,
+        // Proposal is still active.
+        ProposalStillActive,
+        // Less people than required has voted on the proposal which makes it invalid.
+        QuorumNotMet,
+        // Proposal has not been accepted by the majority of the token holders.
+        ProposalNotPassed,
+        // Transfer for the execution of the transfer failed.
+        TransferFailed,
     }
 
     impl Dao {
@@ -123,6 +151,7 @@ mod dao {
                 proposals: Mapping::default(),
                 proposal_votes: Mapping::default(),
                 votes: Mapping::default(),
+                total_voters: Mapping::default(),
                 next_proposal_id: 0,
                 governance_token,
                 quorum,
@@ -160,6 +189,7 @@ mod dao {
                     total_no: 0,
                 },
             );
+            self.total_voters.insert(proposal_id, &0);
             // Self::env().emit_event(ProposalCreated {
             //     proposal_id,
             //     to,
@@ -183,12 +213,13 @@ mod dao {
                 Some(proposal) => proposal,
                 _ => return Err(Error::ProposalNotFound),
             };
-            self.has_executed(&proposal)?;
-            self.has_expired(&proposal)?;
+            self.proposal_executed(&proposal)?;
+            if self.proposal_expired(&proposal) {
+                return Err(Error::ProposalExpired);
+            }
             let caller = self.env().caller();
             self.has_voted(proposal_id, caller)?;
             let vote_amount = self.balance_of(caller);
-            ink::env::debug_println!("vote_amount {}", vote_amount);
             if vote_amount == 0 {
                 return Err(Error::InsufficientBalance);
             }
@@ -200,7 +231,6 @@ mod dao {
             //     vote_type,
             //     vote_amount,
             // });
-            ink::env::debug_println!("works");
             Ok(())
         }
 
@@ -232,6 +262,8 @@ mod dao {
                 },
             };
             self.proposal_votes.insert(proposal_id, &proposal_votes);
+            let total_voters = self.total_voters.get(proposal_id).unwrap_or_default();
+            self.total_voters.insert(proposal_id, &(total_voters + 1));
             Ok(())
         }
 
@@ -256,28 +288,8 @@ mod dao {
                 })
         }
 
-        // #[inline]
-        // fn total_supply(&self) -> Balance {
-        //     build_call::<DefaultEnvironment>()
-        //         .call(self.governance_token)
-        //         .gas_limit(0)
-        //         .transferred_value(0)
-        //         .call_flags(CallFlags::default())
-        //         .exec_input(ExecutionInput::new(Selector::new(ink::selector_bytes!(
-        //             "total_supply"
-        //         ))))
-        //         .returns::<Balance>()
-        //         .try_invoke()
-        //         .unwrap_or_else(|env_err| {
-        //             panic!("cross-contract call to erc20 failed due to {:?}", env_err)
-        //         })
-        //         .unwrap_or_else(|lang_err| {
-        //             panic!("cross-contract call to erc20 failed due to {:?}", lang_err)
-        //         })
-        // }
-
         #[inline]
-        fn has_executed(&self, proposal: &Proposal) -> Result<()> {
+        fn proposal_executed(&self, proposal: &Proposal) -> Result<()> {
             if proposal.executed {
                 return Err(Error::ProposalExecuted);
             }
@@ -285,11 +297,11 @@ mod dao {
         }
 
         #[inline]
-        fn has_expired(&self, proposal: &Proposal) -> Result<()> {
+        fn proposal_expired(&self, proposal: &Proposal) -> bool {
             if self.env().block_timestamp() >= proposal.end {
-                return Err(Error::ProposalExpired);
+                return true;
             }
-            Ok(())
+            false
         }
 
         #[inline]
@@ -301,10 +313,60 @@ mod dao {
         }
 
         // Execute a proposal.
-        // #[ink(message)]
-        // pub fn execute(&mut self) {
-        //     self.value = !self.value;
-        // }
+        #[ink(message)]
+        pub fn execute(&mut self, proposal_id: ProposalId) -> Result<()> {
+            let mut proposal = match self.proposals.get(proposal_id) {
+                Some(proposal) => proposal,
+                _ => return Err(Error::ProposalNotFound),
+            };
+            self.proposal_executed(&proposal)?;
+            if !self.proposal_expired(&proposal) {
+                return Err(Error::ProposalStillActive);
+            }
+            let _total_voters = self.quorum_met(proposal_id)?;
+            let proposal_votes = match self.proposal_votes.get(proposal_id) {
+                Some(proposal_votes) => proposal_votes,
+                _ => panic!("Developer is a dickhead"),
+            };
+            self.proposal_pass(proposal_votes)?;
+            self.transfer_proposal_amount(proposal)?;
+            proposal.executed = true;
+            self.proposals.insert(proposal_id, &proposal);
+            // Self::env().emit_event(ProposalExecuted {
+            //     proposal_id,
+            //     to: proposal.to,
+            //     amount: proposal.amount,
+            //     total_yes: proposal_votes.total_yes,
+            //     total_no: proposal_votes.total_no,
+            //     total_voters,
+            // });
+            Ok(())
+        }
+
+        #[inline]
+        fn transfer_proposal_amount(&self, proposal: Proposal) -> Result<()> {
+            if self.env().transfer(proposal.to, proposal.amount).is_err() {
+                return Err(Error::TransferFailed);
+            }
+            Ok(())
+        }
+
+        #[inline]
+        fn proposal_pass(&self, proposal_votes: ProposalVotes) -> Result<()> {
+            if proposal_votes.total_yes <= proposal_votes.total_no {
+                return Err(Error::ProposalNotPassed);
+            }
+            Ok(())
+        }
+
+        #[inline]
+        fn quorum_met(&self, proposal_id: ProposalId) -> Result<u8> {
+            let total_voters = self.total_voters.get(proposal_id).unwrap_or_default();
+            if total_voters < self.quorum {
+                return Err(Error::QuorumNotMet);
+            }
+            Ok(total_voters)
+        }
 
         #[ink(message)]
         pub fn get_treasury_amount(&self) -> Balance {
@@ -327,6 +389,14 @@ mod dao {
                 .ok_or(Error::ProposalNotFound)
         }
 
+        // Get the number of voters that voted on a proposal
+        #[ink(message)]
+        pub fn get_voters(&self, proposal_id: ProposalId) -> Result<u8> {
+            self.total_voters
+                .get(proposal_id)
+                .ok_or(Error::ProposalNotFound)
+        }
+
         // Get the amount of time left to vote on a proposal.
         #[ink(message)]
         pub fn get_proposal_end(&self, proposal_id: ProposalId) -> Result<Timestamp> {
@@ -336,6 +406,26 @@ mod dao {
                 .ok_or(Error::ProposalNotFound)?;
             Ok(proposal.end)
         }
+
+        // #[inline]
+        // fn total_supply(&self) -> Balance {
+        //     build_call::<DefaultEnvironment>()
+        //         .call(self.governance_token)
+        //         .gas_limit(0)
+        //         .transferred_value(0)
+        //         .call_flags(CallFlags::default())
+        //         .exec_input(ExecutionInput::new(Selector::new(ink::selector_bytes!(
+        //             "total_supply"
+        //         ))))
+        //         .returns::<Balance>()
+        //         .try_invoke()
+        //         .unwrap_or_else(|env_err| {
+        //             panic!("cross-contract call to erc20 failed due to {:?}", env_err)
+        //         })
+        //         .unwrap_or_else(|lang_err| {
+        //             panic!("cross-contract call to erc20 failed due to {:?}", lang_err)
+        //         })
+        // }
     }
 
     #[cfg(all(test, feature = "e2e-tests"))]
@@ -468,6 +558,14 @@ mod dao {
                     executed: false,
                 })
             );
+            // Get total voters on proposal
+            let get_voters =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.get_voters(1));
+            let get_voters_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_voters, 0, None)
+                .await;
+            assert_eq!(get_voters_result.return_value(), Ok(0));
+
             // Get total votes on proposal
             let get_votes =
                 ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.get_votes(1));
@@ -481,6 +579,14 @@ mod dao {
                     total_no: 0,
                 })
             );
+
+            // Get total voters on proposal
+            let get_voters =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.get_voters(1));
+            let get_voters_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_voters, 0, None)
+                .await;
+            assert_eq!(get_voters_result.return_value(), Ok(0));
             Ok(())
         }
 
@@ -504,7 +610,7 @@ mod dao {
             assert_eq!(get_treasury_amount_result.return_value(), 100);
             // Propose an incorrect proposals
             //
-            // Invalid proposal amount
+            // Invalid proposal amount (Error::InvalidProposalAmount)
             let ferdie_account = ink_e2e::account_id(ink_e2e::AccountKeyring::Ferdie);
             let propose_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
                 .call(|dao| dao.propose(ferdie_account.clone(), 0, 10));
@@ -512,7 +618,7 @@ mod dao {
                 .call(&ink_e2e::alice(), propose_message, 0, None)
                 .await;
             assert!(propose_result.is_err());
-            // Invalid proposal duration
+            // Invalid proposal duration (Error::InvalidProposalDuration)
             let propose_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
                 .call(|dao| dao.propose(ferdie_account.clone(), 10, 0));
             let propose_result = client
@@ -543,6 +649,17 @@ mod dao {
                 .await;
             assert_eq!(
                 get_votes_result.return_value(),
+                Err(Error::ProposalNotFound)
+            );
+
+            // Get total voters on proposal
+            let get_voters =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.get_voters(1));
+            let get_voters_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_voters, 0, None)
+                .await;
+            assert_eq!(
+                get_voters_result.return_value(),
                 Err(Error::ProposalNotFound)
             );
             Ok(())
@@ -690,6 +807,14 @@ mod dao {
                     total_no: 200,
                 })
             );
+
+            // Get total voters on proposal
+            let get_voters =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.get_voters(1));
+            let get_voters_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_voters, 0, None)
+                .await;
+            assert_eq!(get_voters_result.return_value(), Ok(3));
             Ok(())
         }
 
@@ -746,7 +871,7 @@ mod dao {
                 .await;
             assert_eq!(balance_of_res.return_value(), 0);
 
-            // Ferdie votes `no` without balance
+            // Ferdie votes `no` without balance (Error::InsufficientBalance)
             let vote_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
                 .call(|dao| dao.vote(1, VoteType::No));
             let vote_result = client.call(&ink_e2e::ferdie(), vote_message, 0, None).await;
@@ -760,13 +885,19 @@ mod dao {
                 .await
                 .expect("vote failed");
 
-            // Alice votes `yes` again
+            // Alice votes `yes` again (Error::AlreadyVoted)
             let vote_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
                 .call(|dao| dao.vote(1, VoteType::Yes));
             let vote_result = client.call(&ink_e2e::alice(), vote_message, 0, None).await;
             assert!(vote_result.is_err());
 
-            // Bob votes `no` on not existing proposal
+            // Alice votes `no` again (Error::AlreadyVoted)
+            let vote_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
+                .call(|dao| dao.vote(1, VoteType::No));
+            let vote_result = client.call(&ink_e2e::alice(), vote_message, 0, None).await;
+            assert!(vote_result.is_err());
+
+            // Bob votes `no` on non existing proposal (Error::ProposalNotFound)
             let vote_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
                 .call(|dao| dao.vote(2, VoteType::No));
             let vote_result = client.call(&ink_e2e::bob(), vote_message, 0, None).await;
@@ -785,9 +916,130 @@ mod dao {
                     total_no: 0,
                 })
             );
+
+            // Get total voters on proposal
+            let get_voters =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.get_voters(1));
+            let get_voters_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_voters, 0, None)
+                .await;
+            assert_eq!(get_voters_result.return_value(), Ok(1));
             Ok(())
         }
-        // proposal_expired
-        // proposal_executed
+
+        #[ink_e2e::test]
+        async fn incorrect_proposal_execution(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
+            // Instantiate erc20 contract
+            let total_supply = 1_000;
+            let erc20_constructor = Erc20Ref::new(total_supply);
+            let erc20_acc_id = client
+                .instantiate("erc20", &ink_e2e::alice(), erc20_constructor, 0, None)
+                .await
+                .expect("instantiate failed")
+                .account_id;
+            // Instantiate dao contract
+            let quorum = 10;
+            let dao_constructor = DaoRef::new(erc20_acc_id, quorum);
+            let dao_id = client
+                .instantiate("dao", &ink_e2e::ferdie(), dao_constructor, 100, None)
+                .await
+                .expect("dao contract instantiation failed")
+                .account_id;
+            // Transfer tokens to Bob
+            let bob_account = ink_e2e::account_id(ink_e2e::AccountKeyring::Bob);
+            let transfer_to_bob = 200u128;
+            let transfer = build_message::<Erc20Ref>(erc20_acc_id.clone())
+                .call(|erc20| erc20.transfer(bob_account.clone(), transfer_to_bob));
+            let _transfer_res = client
+                .call(&ink_e2e::alice(), transfer, 0, None)
+                .await
+                .expect("transfer failed");
+
+            // Get balance of Bob
+            let balance_of = build_message::<Erc20Ref>(erc20_acc_id.clone())
+                .call(|erc20| erc20.balance_of(bob_account));
+            let balance_of_res = client
+                .call_dry_run(&ink_e2e::alice(), &balance_of, 0, None)
+                .await;
+            assert_eq!(transfer_to_bob, balance_of_res.return_value());
+
+            // Transfer tokens to Ferdie
+            let ferdie_account = ink_e2e::account_id(ink_e2e::AccountKeyring::Ferdie);
+            let transfer_to_ferdie = 100u128;
+            let transfer = build_message::<Erc20Ref>(erc20_acc_id.clone())
+                .call(|erc20| erc20.transfer(ferdie_account.clone(), transfer_to_ferdie));
+            let _transfer_res = client
+                .call(&ink_e2e::alice(), transfer, 0, None)
+                .await
+                .expect("transfer failed");
+
+            // Get balance of Ferdie
+            let balance_of = build_message::<Erc20Ref>(erc20_acc_id.clone())
+                .call(|erc20| erc20.balance_of(ferdie_account));
+            let balance_of_res = client
+                .call_dry_run(&ink_e2e::alice(), &balance_of, 0, None)
+                .await;
+            assert_eq!(transfer_to_ferdie, balance_of_res.return_value());
+
+            // Propose a proposal
+            let ferdie_account = ink_e2e::account_id(ink_e2e::AccountKeyring::Ferdie);
+            let propose_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
+                .call(|dao| dao.propose(ferdie_account.clone(), 10, 10));
+            let propose_result = client
+                .call(&ink_e2e::alice(), propose_message, 0, None)
+                .await;
+            assert!(propose_result.is_ok());
+
+            // // Alice votes `yes`
+            let vote_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
+                .call(|dao| dao.vote(1, VoteType::Yes));
+            let _vote_result = client
+                .call(&ink_e2e::alice(), vote_message, 0, None)
+                .await
+                .expect("vote failed");
+            // Ferdie votes `no`
+            let vote_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
+                .call(|dao| dao.vote(1, VoteType::No));
+            let _vote_result = client
+                .call(&ink_e2e::ferdie(), vote_message, 0, None)
+                .await
+                .expect("vote failed");
+            // Bob votes `no`
+            let vote_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
+                .call(|dao| dao.vote(1, VoteType::No));
+            let _vote_result = client
+                .call(&ink_e2e::bob(), vote_message, 0, None)
+                .await
+                .expect("vote failed");
+
+            // Get total votes on proposal
+            let get_votes =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.get_votes(1));
+            let get_votes_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_votes, 0, None)
+                .await;
+            assert_eq!(
+                get_votes_result.return_value(),
+                Ok(ProposalVotes {
+                    total_yes: 700,
+                    total_no: 300,
+                })
+            );
+
+            // Get total voters on proposal
+            let get_voters =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.get_voters(1));
+            let get_voters_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_voters, 0, None)
+                .await;
+            assert_eq!(get_voters_result.return_value(), Ok(3));
+
+            // Execute proposal (Error::ProposalStillActive)
+            let execute_message =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.execute(1));
+            let execute_result = client.call(&ink_e2e::bob(), execute_message, 0, None).await;
+            assert!(execute_result.is_err());
+            Ok(())
+        }
     }
 }
