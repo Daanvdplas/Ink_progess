@@ -8,11 +8,11 @@ A very simple DAO.
 - Fund the treasury
 
 ## Rules
-- Upon *DAO* creation the governance token and quorum is specified.
-- *Voting power* is decided and can be modified in `fn get_voting_power`.
-- *Governance token*, upon dao creation, gives accounts voting power.
-- *Payout token* is the native token and held by the treasury.
-- *Treasury* can be funded upon dao creation (`fn new`) and through `fn fund`.
+- Upon **DAO** creation the governance token and quorum is specified.
+- **Voting power** is decided and can be modified in `fn get_voting_power`.
+- **Governance token**, upon dao creation, gives accounts voting power.
+- **Payout token** is the native token and held by the treasury.
+- **Treasury** can be funded upon dao creation (`fn new`) and through `fn fund`.
 
 ## Ideas:
 ### DAO:
@@ -34,7 +34,6 @@ A very simple DAO.
 - Same as the governance token.
 - Multiple tokens, can be specified by the proposer.
 
-
 ## Details
 - ProposalId -> Hash?
 - How to make a DAO unique (searchable)?
@@ -46,7 +45,3 @@ A very simple DAO.
   * BoundedVec<AccountId>
 - How to check whether the DAO has enough funds when there are ongoing proposals
   that can empty the treasury?
-
-## Questions:
-- Panic or emitting error?
-- Option<T> as return value in query messages.

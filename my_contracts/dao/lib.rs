@@ -16,6 +16,7 @@ mod dao {
     type ProposalId = u64;
     type Votes = u128;
 
+    // For testing purposes I made it minutes.
     const DAYS: u64 = 60 * 1_000;
 
     // A proposal that can be made with `fn propose`.
@@ -112,6 +113,13 @@ mod dao {
         total_voters: u8,
     }
 
+    #[ink(event)]
+    pub struct Fund {
+        #[ink(topic)]
+        from: AccountId,
+        amount: Balance,
+    }
+
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
@@ -136,7 +144,9 @@ mod dao {
         // Less people than required has voted on the proposal which makes it invalid.
         QuorumNotMet,
         // Proposal has not been accepted by the majority of the token holders.
-        ProposalNotPassed,
+        ProposalRefused,
+        // Insufficient treasury balance for proposal execution.
+        InsufficientTreasuryBalance,
         // Transfer for the execution of the transfer failed.
         TransferFailed,
     }
@@ -336,6 +346,10 @@ mod dao {
                 _ => panic!("Developer is a dickhead"),
             };
             self.proposal_pass(proposal_votes)?;
+            let treasury = self.env().balance();
+            if proposal.amount > treasury {
+                return Err(Error::InsufficientTreasuryBalance);
+            }
             self.transfer_proposal_amount(proposal)?;
             proposal.executed = true;
             self.proposals.insert(proposal_id, &proposal);
@@ -351,6 +365,23 @@ mod dao {
         }
 
         #[inline]
+        fn quorum_met(&self, proposal_id: ProposalId) -> Result<u8> {
+            let total_voters = self.total_voters.get(proposal_id).unwrap_or_default();
+            if total_voters < self.quorum {
+                return Err(Error::QuorumNotMet);
+            }
+            Ok(total_voters)
+        }
+
+        #[inline]
+        fn proposal_pass(&self, proposal_votes: ProposalVotes) -> Result<()> {
+            if proposal_votes.total_yes <= proposal_votes.total_no {
+                return Err(Error::ProposalRefused);
+            }
+            Ok(())
+        }
+
+        #[inline]
         fn transfer_proposal_amount(&self, proposal: Proposal) -> Result<()> {
             if self.env().transfer(proposal.to, proposal.amount).is_err() {
                 return Err(Error::TransferFailed);
@@ -358,21 +389,14 @@ mod dao {
             Ok(())
         }
 
-        #[inline]
-        fn proposal_pass(&self, proposal_votes: ProposalVotes) -> Result<()> {
-            if proposal_votes.total_yes <= proposal_votes.total_no {
-                return Err(Error::ProposalNotPassed);
-            }
-            Ok(())
-        }
-
-        #[inline]
-        fn quorum_met(&self, proposal_id: ProposalId) -> Result<u8> {
-            let total_voters = self.total_voters.get(proposal_id).unwrap_or_default();
-            if total_voters < self.quorum {
-                return Err(Error::QuorumNotMet);
-            }
-            Ok(total_voters)
+        #[ink(message, payable)]
+        pub fn fund(&self) {
+            let _from = self.env().caller();
+            let _amount = self.env().transferred_value();
+            // Self::env().emit_event(Fund{
+            //     from,
+            //     amount,
+            // });
         }
 
         #[ink(message)]
@@ -454,7 +478,7 @@ mod dao {
                 .await
                 .expect("dao contract instantiation failed")
                 .account_id;
-            // Check if dao balance is correct
+            // Get treasury balance
             let get_treasury_amount = ink_e2e::build_message::<DaoRef>(dao_id.clone())
                 .call(|dao| dao.get_treasury_amount());
             let get_treasury_amount_result = client
@@ -571,7 +595,7 @@ mod dao {
                 .await
                 .expect("dao contract instantiation failed")
                 .account_id;
-            // Check if dao balance is correct
+            // Get treasury balance
             let get_treasury_amount = ink_e2e::build_message::<DaoRef>(dao_id.clone())
                 .call(|dao| dao.get_treasury_amount());
             let get_treasury_amount_result = client
@@ -1011,5 +1035,55 @@ mod dao {
             assert!(execute_result.is_err());
             Ok(())
         }
+
+        #[ink_e2e::test]
+        async fn fund(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
+            // Instantiate erc20 contract
+            let total_supply = 1_000;
+            let erc20_constructor = Erc20Ref::new(total_supply);
+            let erc20_acc_id = client
+                .instantiate("erc20", &ink_e2e::alice(), erc20_constructor, 0, None)
+                .await
+                .expect("instantiate failed")
+                .account_id;
+            // Instantiate dao contract
+            let quorum = 10;
+            let dao_constructor = DaoRef::new(erc20_acc_id, quorum);
+            let dao_id = client
+                .instantiate("dao", &ink_e2e::ferdie(), dao_constructor, 100, None)
+                .await
+                .expect("dao contract instantiation failed")
+                .account_id;
+            // Get treasury balance (100)
+            let get_treasury_amount = ink_e2e::build_message::<DaoRef>(dao_id.clone())
+                .call(|dao| dao.get_treasury_amount());
+            let get_treasury_amount_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_treasury_amount, 0, None)
+                .await;
+            assert_eq!(get_treasury_amount_result.return_value(), 100);
+            // Fund the dao contract (50)
+            let fund_message =
+                ink_e2e::build_message::<DaoRef>(dao_id.clone()).call(|dao| dao.fund());
+            let _fund_result = client
+                .call(&ink_e2e::bob(), fund_message, 50, None)
+                .await
+                .expect("fund failed");
+            // Get treasury balance (150)
+            let get_treasury_amount = ink_e2e::build_message::<DaoRef>(dao_id.clone())
+                .call(|dao| dao.get_treasury_amount());
+            let get_treasury_amount_result = client
+                .call_dry_run(&ink_e2e::alice(), &get_treasury_amount, 0, None)
+                .await;
+            assert_eq!(get_treasury_amount_result.return_value(), 150);
+            Ok(())
+        }
+
+        // Things that is not possible to test;
+        // - Vote on a proposal which has expired (Error::ProposalExpired).
+        // - Vote on a proposal which already has been executed (Error::ProposalExecuted).
+        // - Execute a proposal successfully.
+        // - Execute a proposal while the quorum is not met (Error::QuorumNotMet).
+        // - Execute a proposal which hasn't been accepted by the majority of the voters (Error::ProposalRefused).
+        // - Execute a proposal with insufficient treasury balance (Error::InsufficientTreasuryBalance).
     }
 }
