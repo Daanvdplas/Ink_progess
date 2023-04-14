@@ -1,37 +1,52 @@
 # DAO
-The governance token gives accounts voting power. Yet, the payout is in the native token. 
+A very simple DAO. 
 
 ## Functionality
 - Make a proposal
 - Vote on a proposal
 - Execute a proposal
+- Fund the treasury
 
-## Metrics:
-- Voting power: voter's balance
+## Rules
+- Upon *DAO* creation the governance token and quorum is specified.
+- *Voting power* is decided and can be modified in `fn get_voting_power`.
+- *Governance token*, upon dao creation, gives accounts voting power.
+- *Payout token* is the native token and held by the treasury.
+- *Treasury* can be funded upon dao creation (`fn new`) and through `fn fund`.
 
 ## Ideas:
-- Different mechanics for voting power
-  - Voter wants to use all its tokens?
-- Possibility to fund the DAO
-- Being able to be funded with other token
-- Fund the dao through erc20 token (= governance_token)
-- Creator of DAO can determine whether proposal duration is constant
-  * or creator determines the minimum duration for proposal on this dao
-  * max. allowed duration?
-- ProposalId: Hash
-- How do people search for a proposal?
-  * Proposal number
-  * Hash
-- How to make a this DAO contract unique (searchable)?
+### DAO:
+- Upon DAO creation:
+  * Constant proposal duration.
+  * Minimum proposal duration.
+  * Maximum allowed proposal duration.
+ 
+### Voting power:
+- Different mechanics for voting power (e.g. quadratic voting).
+- Voter can specify how much it wants to vote.
+
+### Governance token:
+- Native token.
+- Same as the payout token.
+
+### Payout token:
+- Erc20 token.
+- Same as the governance token.
+- Multiple tokens, can be specified by the proposer.
+
+
+## Details
+- ProposalId -> Hash?
+- How to make a DAO unique (searchable)?
   * Name
   * Name + token
   * Name + token + blocknumber
 - Who should be able to execute a proposal?
 - Should we be able to query who voted on a proposal?
-- Should we be able to make a proposal, in terms of whether the dao has the funds,
-  with proposals that have not been executed yet?
+  * BoundedVec<AccountId>
+- How to check whether the DAO has enough funds when there are ongoing proposals
+  that can empty the treasury?
 
 ## Questions:
 - Panic or emitting error?
 - Option<T> as return value in query messages.
-- Interacting with other contracts in rust test.

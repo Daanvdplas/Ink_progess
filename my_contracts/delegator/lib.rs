@@ -2,10 +2,12 @@
 
 #[ink::contract]
 mod delegator {
+    use ink::env::Result as EnvResult;
     use ink::env::{
         call::{build_call, ExecutionInput, Selector},
         CallFlags, DefaultEnvironment,
     };
+    use ink::MessageResult;
 
     // Whether the contract calls the `adder` or `subber` contract.
     #[derive(Debug, Copy, Clone, PartialEq, Eq, scale::Decode, scale::Encode)]
@@ -47,7 +49,7 @@ mod delegator {
 
         #[ink(message)]
         pub fn get(&self) -> i32 {
-            build_call::<DefaultEnvironment>()
+            let result = build_call::<DefaultEnvironment>()
                 .call(self.acc_contract)
                 .gas_limit(0)
                 .transferred_value(0)
@@ -56,19 +58,12 @@ mod delegator {
                     "get"
                 ))))
                 .returns::<i32>()
-                .try_invoke()
-                .unwrap_or_else(|env_err| {
-                    panic!(
-                        "cross-contract call to {:?} failed due to {:?}",
-                        self.acc_contract, env_err
-                    )
-                })
-                .unwrap_or_else(|lang_err| {
-                    panic!(
-                        "cross-contract call to {:?} failed due to {:?}",
-                        self.acc_contract, lang_err
-                    )
-                })
+                .try_invoke();
+
+            match result {
+                EnvResult::Ok(MessageResult::Ok(result)) => result,
+                _ => unimplemented!(),
+            }
         }
 
         #[ink(message)]

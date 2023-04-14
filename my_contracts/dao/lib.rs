@@ -4,11 +4,13 @@ mod tests;
 
 #[ink::contract]
 mod dao {
+    use ink::env::Result as EnvResult;
     use ink::env::{
         call::{build_call, ExecutionInput, Selector},
         CallFlags, DefaultEnvironment,
     };
     use ink::storage::Mapping;
+    use ink::MessageResult;
 
     type Result<T> = core::result::Result<T, Error>;
     type ProposalId = u64;
@@ -219,11 +221,9 @@ mod dao {
             }
             let caller = self.env().caller();
             self.has_voted(proposal_id, caller)?;
-            let vote_amount = self.balance_of(caller);
-            if vote_amount == 0 {
-                return Err(Error::InsufficientBalance);
-            }
-            self.add_votes(vote_amount, proposal_id, vote_type)?;
+
+            let voting_power = self.get_voting_power(caller)?;
+            self.add_votes(voting_power, proposal_id, vote_type)?;
             self.votes.insert((&proposal_id, &caller), &());
             // Self::env().emit_event(Vote {
             //     proposal_id,
@@ -232,6 +232,15 @@ mod dao {
             //     vote_amount,
             // });
             Ok(())
+        }
+
+        #[inline]
+        fn get_voting_power(&self, caller: AccountId) -> Result<Votes> {
+            let balance = self.balance_of(caller);
+            if balance == 0 {
+                return Err(Error::InsufficientBalance);
+            }
+            Ok(balance)
         }
 
         #[inline]
@@ -269,7 +278,7 @@ mod dao {
 
         #[inline]
         fn balance_of(&self, caller: AccountId) -> Balance {
-            build_call::<DefaultEnvironment>()
+            let result = build_call::<DefaultEnvironment>()
                 .call(self.governance_token)
                 .gas_limit(0)
                 .transferred_value(0)
@@ -279,13 +288,11 @@ mod dao {
                         .push_arg(caller),
                 )
                 .returns::<Balance>()
-                .try_invoke()
-                .unwrap_or_else(|env_err| {
-                    panic!("cross-contract call to erc20 failed due to {:?}", env_err)
-                })
-                .unwrap_or_else(|lang_err| {
-                    panic!("cross-contract call to erc20 failed due to {:?}", lang_err)
-                })
+                .try_invoke();
+            match result {
+                EnvResult::Ok(MessageResult::Ok(result)) => result,
+                _ => unimplemented!(),
+            }
         }
 
         #[inline]
@@ -432,46 +439,9 @@ mod dao {
     mod e2e_tests {
         use super::*;
         use erc20::Erc20Ref;
-
         use ink_e2e::build_message;
 
         type E2EResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-
-        // #[ink_e2e::test]
-        // async fn timestamp(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
-        //     // Instantiate dao contract
-        //     let governance_token: AccountId = [0x08; 32].into();
-        //     let quorum = 10;
-        //     let dao_constructor = DaoRef::new(governance_token, quorum);
-        //     let dao_id = client
-        //         .instantiate("dao", &ink_e2e::ferdie(), dao_constructor, 100, None)
-        //         .await
-        //         .expect("dao contract instantiation failed")
-        //         .account_id;
-
-        //     let ferdie_account = ink_e2e::account_id(ink_e2e::AccountKeyring::Ferdie);
-        //     ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(0);
-        //     let propose_message = ink_e2e::build_message::<DaoRef>(dao_id.clone())
-        //         .call(|dao| dao.propose(ferdie_account.clone(), 10, 10));
-        //     let _propose_result = client
-        //         .call(&ink_e2e::alice(), propose_message, 0, None)
-        //         .await
-        //         .expect("Proposal failed");
-        //     // Get end of proposal
-        //     let get_end = ink_e2e::build_message::<DaoRef>(dao_id.clone())
-        //         .call(|dao| dao.get_proposal_end(1));
-        //     let get_end_result = client
-        //         .call_dry_run(&ink_e2e::alice(), &get_end, 0, None)
-        //         .await;
-        //     assert!(get_end_result.exec_result.result.is_ok());
-        //     // Hacky way due to no timestamp() in e2e_tests yet
-        //     let start = get_end_result
-        //         .return_value()
-        //         .unwrap_or_else(|_| panic!("shouldn't panic"))
-        //         - (10 * DAYS);
-        //     assert_eq!(start, 0);
-        //     Ok(())
-        // }
 
         #[ink_e2e::test]
         async fn gets_work(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
