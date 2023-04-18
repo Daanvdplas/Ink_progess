@@ -74,51 +74,51 @@ mod dao {
         pub quorum: u8,
     }
 
-    #[ink(event)]
-    pub struct DaoCreated {
-        #[ink(topic)]
-        pub governance_token: AccountId,
-        pub quorum: u8,
-    }
+    // #[ink(event)]
+    // pub struct DaoCreated {
+    //     #[ink(topic)]
+    //     pub governance_token: AccountId,
+    //     pub quorum: u8,
+    // }
 
-    #[ink(event)]
-    pub struct ProposalCreated {
-        #[ink(topic)]
-        pub proposal_id: ProposalId,
-        #[ink(topic)]
-        pub to: AccountId,
-        pub amount: Balance,
-        pub duration: u64,
-    }
+    // #[ink(event)]
+    // pub struct ProposalCreated {
+    //     #[ink(topic)]
+    //     pub proposal_id: ProposalId,
+    //     #[ink(topic)]
+    //     pub to: AccountId,
+    //     pub amount: Balance,
+    //     pub duration: u64,
+    // }
 
-    #[ink(event)]
-    pub struct Vote {
-        #[ink(topic)]
-        pub proposal_id: ProposalId,
-        #[ink(topic)]
-        pub who: AccountId,
-        pub vote_type: VoteType,
-        pub vote_amount: Votes,
-    }
+    // #[ink(event)]
+    // pub struct Vote {
+    //     #[ink(topic)]
+    //     pub proposal_id: ProposalId,
+    //     #[ink(topic)]
+    //     pub who: AccountId,
+    //     pub vote_type: VoteType,
+    //     pub vote_amount: Votes,
+    // }
 
-    #[ink(event)]
-    pub struct ProposalExecuted {
-        #[ink(topic)]
-        pub proposal_id: ProposalId,
-        #[ink(topic)]
-        to: AccountId,
-        amount: Balance,
-        total_yes: Votes,
-        total_no: Votes,
-        total_voters: u8,
-    }
+    // #[ink(event)]
+    // pub struct ProposalExecuted {
+    //     #[ink(topic)]
+    //     pub proposal_id: ProposalId,
+    //     #[ink(topic)]
+    //     to: AccountId,
+    //     amount: Balance,
+    //     total_yes: Votes,
+    //     total_no: Votes,
+    //     total_voters: u8,
+    // }
 
-    #[ink(event)]
-    pub struct Fund {
-        #[ink(topic)]
-        from: AccountId,
-        amount: Balance,
-    }
+    // #[ink(event)]
+    // pub struct Fund {
+    //     #[ink(topic)]
+    //     from: AccountId,
+    //     amount: Balance,
+    // }
 
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]

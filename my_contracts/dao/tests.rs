@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod test {
-    use crate::dao::{Dao, DaoCreated, Error, Proposal, ProposalCreated, ProposalVotes, VoteType};
+    use crate::dao::{Dao, Error, Proposal, ProposalVotes, VoteType};
     use ink::primitives::AccountId;
     // type Event = <Dao as ::ink::reflect::ContractEventBase>::Type;
     type Balance = u128;

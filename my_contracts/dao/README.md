@@ -1,6 +1,11 @@
 # DAO
 A very simple DAO. 
 
+## How to use?
+- Instantiate ERC20 contract.
+- Instantiate DAO contract with instantiated ERC20 contract.
+- Have fun!
+
 ## Functionality
 - Make a proposal
 - Vote on a proposal
